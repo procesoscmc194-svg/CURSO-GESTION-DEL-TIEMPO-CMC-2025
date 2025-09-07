@@ -262,6 +262,7 @@
             box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
             font-weight: 600;
             transition: transform 0.2s ease-in-out, box-shadow 0.2s;
+            touch-action: none; /* Previene scroll en móvil al arrastrar */
         }
 
         #evaluacion-modulo-2 .task-item:hover {
@@ -272,6 +273,12 @@
         #evaluacion-modulo-2 .task-item:active {
             cursor: grabbing;
         }
+        
+        /* Estilo para el elemento que se está arrastrando */
+        #evaluacion-modulo-2 .task-item.dragging {
+            opacity: 0.5;
+        }
+
 
         #evaluacion-modulo-2 .eisenhower-grid {
             display: grid;
@@ -393,6 +400,7 @@
             background: #f8f9fa;
             padding: 1rem;
             border-radius: 15px;
+            touch-action: none; /* Previene scroll en sopa de letras */
         }
         .dark #evaluacion-modulo-3 .wordsearch-grid {
             background: #1f2937;
@@ -1209,7 +1217,7 @@
                 btnEvaluacion1.style.display = 'none';
                 evaluacionContainer1.classList.remove('hidden');
                 startModule1Game();
-            }, { once: true }); // El listener se ejecuta solo una vez para no reiniciar el juego si se hiciera clic de nuevo
+            }, { once: true });
 
             // --- LÓGICA PARA LA ACTIVIDAD DEL MÓDULO 2 (EISENHOWER) ---
             const startModule2Game = () => {
@@ -1231,6 +1239,7 @@
                 const feedbackMessage = document.getElementById('feedback-message-2');
 
                 let correctTasks = 0;
+                let draggedElement = null;
 
                 function createTasks() {
                     tasksData.forEach(task => {
@@ -1241,7 +1250,6 @@
                         li.setAttribute('draggable', 'true');
                         li.setAttribute('data-correct-quadrant', task.correctQuadrant);
                         li.setAttribute('role', 'listitem');
-                        li.setAttribute('aria-grabbed', 'false');
                         taskListElement.appendChild(li);
                     });
                 }
@@ -1257,54 +1265,23 @@
                     }
                 }
                 
-                function handleDragStart(e) {
-                    if(!e.target.classList.contains('task-item')) return;
-                    e.dataTransfer.setData('text/plain', e.target.id);
-                    e.target.setAttribute('aria-grabbed', 'true');
-                }
-
-                function handleDragOver(e) {
-                    e.preventDefault();
-                    const quadrant = e.target.closest('.quadrant');
-                    if (quadrant) {
-                        quadrant.classList.add('dragover');
-                    }
-                }
-
-                function handleDragLeave(e) {
-                    const quadrant = e.target.closest('.quadrant');
-                    if (quadrant) {
-                        quadrant.classList.remove('dragover');
-                    }
-                }
-
-                function handleDrop(e) {
-                    e.preventDefault();
-                    const id = e.dataTransfer.getData('text/plain');
-                    const draggableElement = document.getElementById(id);
-                    const dropTarget = e.target.closest('.quadrant');
-
-                    if (dropTarget && draggableElement) {
-                        const correctQuadrant = draggableElement.getAttribute('data-correct-quadrant');
+                function processDrop(element, dropTarget) {
+                    if (dropTarget && element) {
+                        const correctQuadrant = element.getAttribute('data-correct-quadrant');
                         const droppedQuadrant = dropTarget.getAttribute('data-quadrant');
                         
-                        dropTarget.classList.remove('dragover');
-                        
-                        const existingFeedback = draggableElement.querySelector('.feedback-message');
-                        if(existingFeedback) {
-                            existingFeedback.remove();
-                        }
+                        const existingFeedback = element.querySelector('.feedback-message');
+                        if(existingFeedback) { existingFeedback.remove(); }
 
                         if (correctQuadrant === droppedQuadrant) {
-                            dropTarget.appendChild(draggableElement);
-                            draggableElement.setAttribute('draggable', 'false');
-                            draggableElement.setAttribute('aria-grabbed', 'false');
-                            draggableElement.style.cursor = 'default';
+                            dropTarget.appendChild(element);
+                            element.setAttribute('draggable', 'false');
+                            element.style.cursor = 'default';
                             
                             const feedback = document.createElement('span');
                             feedback.textContent = '¡Correcto!';
                             feedback.classList.add('feedback-message', 'feedback-correct');
-                            draggableElement.appendChild(feedback);
+                            element.appendChild(feedback);
                             
                             correctTasks++;
                             updateProgress();
@@ -1312,19 +1289,84 @@
                             const feedback = document.createElement('span');
                             feedback.textContent = '¡Incorrecto!';
                             feedback.classList.add('feedback-message', 'feedback-incorrect');
-                            draggableElement.appendChild(feedback);
+                            element.appendChild(feedback);
                         }
                     }
                 }
 
-                taskListElement.addEventListener('dragstart', handleDragStart);
-
-                quadrants.forEach(quadrant => {
-                    quadrant.addEventListener('dragover', handleDragOver);
-                    quadrant.addEventListener('dragleave', handleDragLeave);
-                    quadrant.addEventListener('drop', handleDrop);
+                // --- Eventos de Ratón ---
+                taskListElement.addEventListener('dragstart', e => {
+                    if(!e.target.classList.contains('task-item')) return;
+                    draggedElement = e.target;
+                    e.dataTransfer.setData('text/plain', draggedElement.id);
+                    setTimeout(() => e.target.classList.add('dragging'), 0);
                 });
 
+                document.addEventListener('dragend', e => {
+                    if(draggedElement) draggedElement.classList.remove('dragging');
+                });
+
+                quadrants.forEach(quadrant => {
+                    quadrant.addEventListener('dragover', e => {
+                        e.preventDefault();
+                        quadrant.classList.add('dragover');
+                    });
+                    quadrant.addEventListener('dragleave', e => {
+                        quadrant.classList.remove('dragover');
+                    });
+                    quadrant.addEventListener('drop', e => {
+                        e.preventDefault();
+                        quadrant.classList.remove('dragover');
+                        const id = e.dataTransfer.getData('text/plain');
+                        const element = document.getElementById(id);
+                        processDrop(element, quadrant);
+                    });
+                });
+
+                // --- Eventos Táctiles (Móvil) ---
+                let touchStartX, touchStartY;
+                let currentDropTarget = null;
+                
+                taskListElement.addEventListener('touchstart', e => {
+                    if (!e.target.classList.contains('task-item') || e.target.draggable === false) return;
+                    draggedElement = e.target;
+                    draggedElement.classList.add('dragging');
+                    const touch = e.touches[0];
+                    touchStartX = touch.clientX;
+                    touchStartY = touch.clientY;
+                }, { passive: false });
+
+                document.addEventListener('touchmove', e => {
+                    if (!draggedElement) return;
+                    e.preventDefault();
+                    
+                    const touch = e.touches[0];
+                    
+                    quadrants.forEach(q => q.classList.remove('dragover'));
+                    
+                    const elementUnderTouch = document.elementFromPoint(touch.clientX, touch.clientY);
+                    currentDropTarget = elementUnderTouch ? elementUnderTouch.closest('.quadrant') : null;
+                    
+                    if (currentDropTarget) {
+                        currentDropTarget.classList.add('dragover');
+                    }
+                    
+                }, { passive: false });
+
+                document.addEventListener('touchend', e => {
+                    if (!draggedElement) return;
+                    
+                    draggedElement.classList.remove('dragging');
+                    quadrants.forEach(q => q.classList.remove('dragover'));
+
+                    if (currentDropTarget) {
+                        processDrop(draggedElement, currentDropTarget);
+                    }
+                    
+                    draggedElement = null;
+                    currentDropTarget = null;
+                });
+                
                 createTasks();
             };
 
@@ -1364,7 +1406,7 @@
                 function placeWordInGrid(word) {
                     let placed = false;
                     let attempts = 0;
-                    while (!placed && attempts < 500) { // Aumentado el número de intentos para asegurar la colocación
+                    while (!placed && attempts < 500) {
                         const direction = Math.floor(Math.random() * 8);
                         const startRow = Math.floor(Math.random() * gridSize);
                         const startCol = Math.floor(Math.random() * gridSize);
@@ -1435,19 +1477,19 @@
                     });
                 }
                 
-                function startSelection(e) {
-                    if (e.target.classList.contains('wordsearch-cell')) {
+                function startSelection(target) {
+                    if (target.classList.contains('wordsearch-cell')) {
                         isSelecting = true;
-                        selectedCells = [e.target];
-                        e.target.classList.add('selected');
+                        selectedCells = [target];
+                        target.classList.add('selected');
                     }
                 }
 
-                function continueSelection(e) {
-                    if (!isSelecting || !e.target.classList.contains('wordsearch-cell')) return;
-                    if (!selectedCells.includes(e.target)) {
-                        selectedCells.push(e.target);
-                        e.target.classList.add('selected');
+                function continueSelection(target) {
+                    if (!isSelecting || !target.classList.contains('wordsearch-cell')) return;
+                    if (!selectedCells.includes(target)) {
+                        selectedCells.push(target);
+                        target.classList.add('selected');
                     }
                 }
 
@@ -1506,9 +1548,28 @@
                     initializeGrid();
                 }
                 
-                gridElement.addEventListener('mousedown', startSelection);
-                gridElement.addEventListener('mouseover', continueSelection);
+                // --- Eventos de Ratón ---
+                gridElement.addEventListener('mousedown', e => startSelection(e.target));
+                gridElement.addEventListener('mouseover', e => continueSelection(e.target));
                 document.addEventListener('mouseup', endSelection);
+
+                // --- Eventos Táctiles ---
+                gridElement.addEventListener('touchstart', e => {
+                    e.preventDefault();
+                    startSelection(e.touches[0].target);
+                }, { passive: false });
+
+                gridElement.addEventListener('touchmove', e => {
+                    e.preventDefault();
+                    const touch = e.touches[0];
+                    const element = document.elementFromPoint(touch.clientX, touch.clientY);
+                    if (element) {
+                        continueSelection(element);
+                    }
+                }, { passive: false });
+
+                gridElement.addEventListener('touchend', endSelection);
+                
                 restartButton.addEventListener('click', restartGame);
 
                 initializeGrid();
@@ -1523,7 +1584,6 @@
     </script>
 </body>
 </html>
-
 
 
 
